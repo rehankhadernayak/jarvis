@@ -1,0 +1,2 @@
+#!/bin/sh
+node /Users/28rehank/Documents/jarvis-v2/node_modules/openclaw/dist/index.js "$@"

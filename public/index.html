@@ -1,0 +1,1399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>JARVIS — Mission Control</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #050a14;
+    --surface: rgba(11, 21, 36, 0.82);
+    --surface-solid: #0b1524;
+    --border: #1a3a5c;
+    --border-glow: rgba(14, 165, 233, 0.35);
+    --accent: #0ea5e9;
+    --accent-dim: #0369a1;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --user-bg: rgba(12, 35, 64, 0.9);
+    --jarvis-bg: rgba(7, 15, 28, 0.9);
+    --danger: #ef4444;
+    --success: #10b981;
+    --glow: rgba(14, 165, 233, 0.15);
+    --glow-strong: rgba(14, 165, 233, 0.3);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 14px;
+    overflow: hidden;
+  }
+
+  /* ── Three.js canvas background ──────────────────────────────────────────── */
+  #three-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ── App shell ────────────────────────────────────────────────────────────── */
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 1200px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Header ───────────────────────────────────────────────────────────────── */
+  #header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-glow);
+    background: var(--surface);
+    flex-shrink: 0;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  #header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* ── JARVIS orb — canvas pulsing glow ────────────────────────────────────── */
+  #orb-canvas {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: block;
+  }
+
+  #title {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 5px;
+    color: var(--accent);
+    text-transform: uppercase;
+    text-shadow: 0 0 12px rgba(14,165,233,0.6);
+  }
+
+  #subtitle {
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 3px;
+    margin-top: 2px;
+    text-transform: uppercase;
+  }
+
+  /* ── Scan-line overlay on header for that HUD feel ──────────────────────── */
+  #header::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.6;
+  }
+
+  #controls { display: flex; gap: 8px; align-items: center; }
+
+  .ctrl-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 8px var(--glow); }
+
+  /* ── Main split layout ───────────────────────────────────────────────────── */
+  #main-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* ── Chat panel (40%) ────────────────────────────────────────────────────── */
+  #chat-panel {
+    flex: 0 0 40%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-glow);
+    overflow: hidden;
+    background: var(--surface);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  /* ── Status bar ──────────────────────────────────────────────────────────── */
+  #status-bar {
+    padding: 4px 14px;
+    background: rgba(5,10,20,0.6);
+    border-bottom: 1px solid rgba(26,58,92,0.4);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    display: flex;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  #status-text { color: var(--accent); }
+
+  /* ── Messages ────────────────────────────────────────────────────────────── */
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scroll-behavior: smooth;
+  }
+  #messages::-webkit-scrollbar { width: 3px; }
+  #messages::-webkit-scrollbar-track { background: transparent; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg { display: flex; flex-direction: column; gap: 3px; max-width: 100%; }
+
+  .msg-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .msg.user .msg-label { color: var(--accent-dim); text-align: right; }
+  .msg.jarvis .msg-label { color: var(--success); }
+  .msg.system .msg-label { color: var(--text-dim); }
+
+  .msg-bubble {
+    padding: 9px 12px;
+    border-radius: 8px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13px;
+  }
+  .msg.user .msg-bubble {
+    background: var(--user-bg);
+    border: 1px solid var(--border);
+    align-self: flex-end;
+    border-radius: 8px 8px 2px 8px;
+  }
+  .msg.jarvis .msg-bubble {
+    background: var(--jarvis-bg);
+    border: 1px solid rgba(16,185,129,0.2);
+    border-left: 2px solid var(--success);
+    align-self: flex-start;
+    border-radius: 2px 8px 8px 8px;
+  }
+  .msg.system .msg-bubble {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-dim);
+    font-size: 11px;
+    text-align: center;
+    align-self: center;
+  }
+
+  /* ── Typing indicator ────────────────────────────────────────────────────── */
+  #typing {
+    display: none;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    flex-shrink: 0;
+  }
+  #typing.active { display: flex; align-items: center; gap: 6px; }
+
+  .dot {
+    width: 4px; height: 4px;
+    background: var(--success);
+    border-radius: 50%;
+    animation: dotBounce 1.2s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes dotBounce {
+    0%, 100% { opacity: 0.3; transform: translateY(0); }
+    50% { opacity: 1; transform: translateY(-3px); }
+  }
+
+  /* ── Input area ──────────────────────────────────────────────────────────── */
+  #input-area {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border-glow);
+    background: rgba(11,21,36,0.7);
+    flex-shrink: 0;
+    align-items: flex-end;
+  }
+
+  #msg-input {
+    flex: 1;
+    background: rgba(5,10,20,0.8);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 9px 12px;
+    resize: none;
+    min-height: 40px;
+    max-height: 120px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    line-height: 1.5;
+  }
+  #msg-input:focus { border-color: var(--accent); box-shadow: 0 0 10px var(--glow); }
+  #msg-input::placeholder { color: var(--text-dim); }
+
+  #send-btn {
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  #send-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px var(--glow); }
+  #send-btn:active { background: var(--glow); }
+
+  /* ── Dashboard panel (60%) ───────────────────────────────────────────────── */
+  #dashboard-panel {
+    flex: 0 0 60%;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: rgba(5,10,20,0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #dashboard-panel::-webkit-scrollbar { width: 3px; }
+  #dashboard-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .dash-section-title {
+    font-size: 9px;
+    letter-spacing: 2.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dash-section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
+  }
+
+  /* ── Stat cards row ──────────────────────────────────────────────────────── */
+  .stat-cards-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .dash-card {
+    background: rgba(11,21,36,0.75);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .dash-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.4;
+  }
+  .dash-card:hover { border-color: var(--border-glow); box-shadow: 0 0 12px var(--glow); }
+
+  .dash-card-label {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .dash-card-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .dash-card-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+
+  /* grade colours */
+  .dash-card.grade-S .dash-card-value { color: #f59e0b; text-shadow: 0 0 8px rgba(245,158,11,0.5); }
+  .dash-card.grade-A .dash-card-value { color: var(--success); text-shadow: 0 0 8px rgba(16,185,129,0.4); }
+  .dash-card.grade-B .dash-card-value { color: var(--accent); }
+  .dash-card.grade-C .dash-card-value { color: #f97316; }
+  .dash-card.grade-D .dash-card-value { color: var(--danger); }
+
+  /* ── Life Score arc gauge ────────────────────────────────────────────────── */
+  #life-score-gauge-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #life-score-gauge-wrap svg { flex-shrink: 0; }
+  #gauge-score-label {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+  #gauge-grade-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* ── Gametime animated progress bar ─────────────────────────────────────── */
+  .gametime-bar-bg {
+    background: rgba(26,58,92,0.5);
+    border-radius: 3px;
+    height: 5px;
+    margin-top: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .gametime-bar-fill {
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    height: 5px;
+    border-radius: 3px;
+    transition: width 0.8s cubic-bezier(0.25,0.46,0.45,0.94);
+    position: relative;
+  }
+  .gametime-bar-fill::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 6px;
+    background: white;
+    opacity: 0.7;
+    border-radius: 3px;
+    animation: barPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes barPulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.9; }
+  }
+
+  /* ── SAT stale indicator dot ─────────────────────────────────────────────── */
+  .sat-indicator {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+    margin-left: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .sat-indicator.fresh { background: var(--success); box-shadow: 0 0 6px rgba(16,185,129,0.7); }
+  .sat-indicator.stale { background: var(--danger); box-shadow: 0 0 6px rgba(239,68,68,0.7); animation: blinkRed 1.5s ease-in-out infinite; }
+  @keyframes blinkRed {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Calendar strip ──────────────────────────────────────────────────────── */
+  .cal-pill {
+    background: rgba(11,21,36,0.7);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 11px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    transition: border-color 0.15s;
+  }
+  .cal-pill:hover { border-color: var(--border-glow); }
+  .cal-pill-time { color: var(--accent); font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+  .cal-pill-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Active app row ──────────────────────────────────────────────────────── */
+  #right-active-app {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    padding: 6px 0;
+    border-top: 1px solid rgba(26,58,92,0.4);
+    border-bottom: 1px solid rgba(26,58,92,0.4);
+  }
+  #right-active-app span { color: var(--accent); }
+
+  /* ── Quick actions ───────────────────────────────────────────────────────── */
+  .right-quick-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .qa-btn {
+    background: rgba(11,21,36,0.7);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 0.5px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .qa-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 8px var(--glow); }
+
+  /* ── Emotional check widget ──────────────────────────────────────────────── */
+  #mood-widget {
+    background: rgba(11,21,36,0.75);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  #mood-widget::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--success), transparent);
+    opacity: 0.4;
+  }
+  .mood-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .mood-btn {
+    background: rgba(5,10,20,0.6);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+    line-height: 1;
+  }
+  .mood-btn:hover { border-color: var(--accent); transform: scale(1.15); box-shadow: 0 0 10px var(--glow); }
+  .mood-btn.selected { border-color: var(--success); box-shadow: 0 0 10px rgba(16,185,129,0.4); }
+  #mood-response {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    min-height: 16px;
+    transition: opacity 0.3s;
+    line-height: 1.5;
+  }
+  #mood-response.active { color: var(--success); }
+
+  /* ── System metrics strip ────────────────────────────────────────────────── */
+  #sys-metrics {
+    display: flex;
+    gap: 16px;
+    padding: 8px 12px;
+    background: rgba(5,10,20,0.6);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    flex-wrap: wrap;
+  }
+  .sys-metric { display: flex; gap: 5px; align-items: center; }
+  .sys-metric-label { color: var(--text-dim); }
+  .sys-metric-val { color: var(--accent); font-weight: 600; }
+
+  /* ── Streaks row ─────────────────────────────────────────────────────────── */
+  .streak-row { display: flex; gap: 6px; margin-bottom: 8px; }
+  .streak-pill {
+    flex: 1;
+    background: rgba(11,21,36,0.7);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 10px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .streak-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .streak-dot.active { background: var(--success); box-shadow: 0 0 4px rgba(16,185,129,0.6); }
+  .streak-dot.stale { background: var(--danger); }
+
+  /* ── Time block modal ────────────────────────────────────────────────────── */
+  #block-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(5,10,20,0.88);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  #block-modal.open { display: flex; }
+
+  .modal-box {
+    background: var(--surface-solid);
+    border: 1px solid var(--border-glow);
+    border-radius: 10px;
+    padding: 22px;
+    width: 340px;
+    max-width: 90vw;
+    box-shadow: 0 0 40px rgba(14,165,233,0.2);
+  }
+  .modal-title { font-size: 12px; letter-spacing: 2px; color: var(--accent); margin-bottom: 14px; text-transform: uppercase; }
+  .modal-field { margin-bottom: 10px; }
+  .modal-field label { display: block; font-size: 9px; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; }
+  .modal-field input, .modal-field select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    padding: 7px 10px;
+    outline: none;
+  }
+  .modal-field input:focus, .modal-field select:focus { border-color: var(--accent); }
+  .modal-field select option { background: var(--surface-solid); }
+  .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .modal-btn {
+    flex: 1; padding: 8px; border-radius: 4px;
+    font-family: inherit; font-size: 11px; cursor: pointer;
+    letter-spacing: 1px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); transition: all 0.15s;
+  }
+  .modal-btn.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  .modal-btn:hover:not(.primary) { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Mobile responsive ───────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    #main-layout { flex-direction: column; }
+    #chat-panel { flex: none; width: 100%; height: 55vh; border-right: none; border-bottom: 1px solid var(--border-glow); }
+    #dashboard-panel { flex: none; width: 100%; height: auto; overflow-y: visible; }
+    .stat-cards-row { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ── Scan line animation (subtle) ────────────────────────────────────────── */
+  @keyframes scanLine {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100vh); }
+  }
+
+  /* ── Orb pulse animation (CSS fallback) ──────────────────────────────────── */
+  @keyframes orbPulse {
+    0%, 100% { box-shadow: 0 0 10px var(--accent), 0 0 20px rgba(14,165,233,0.3); }
+    50% { box-shadow: 0 0 18px var(--accent), 0 0 36px rgba(14,165,233,0.5), 0 0 60px rgba(14,165,233,0.15); }
+  }
+
+  /* ── Corner bracket decorations ──────────────────────────────────────────── */
+  .hud-corner {
+    position: absolute;
+    width: 10px; height: 10px;
+    border-color: var(--accent);
+    border-style: solid;
+    opacity: 0.5;
+  }
+  .hud-corner.tl { top: 0; left: 0; border-width: 1px 0 0 1px; }
+  .hud-corner.tr { top: 0; right: 0; border-width: 1px 1px 0 0; }
+  .hud-corner.bl { bottom: 0; left: 0; border-width: 0 0 1px 1px; }
+  .hud-corner.br { bottom: 0; right: 0; border-width: 0 1px 1px 0; }
+</style>
+</head>
+<body>
+
+<!-- Three.js full-screen canvas -->
+<canvas id="three-canvas"></canvas>
+
+<div id="app">
+  <!-- ── Header ── -->
+  <div id="header" style="position:relative;">
+    <div id="header-left">
+      <canvas id="orb-canvas" width="36" height="36" title="JARVIS Core"></canvas>
+      <div>
+        <div id="title">JARVIS</div>
+        <div id="subtitle">MISSION CONTROL · AI OS v2</div>
+      </div>
+    </div>
+    <div id="controls">
+      <span style="font-size:10px;color:var(--text-dim);letter-spacing:1px;">SGT <span id="clock">--:--</span></span>
+    </div>
+  </div>
+
+  <div id="main-layout">
+    <!-- ── LEFT: Chat panel ── -->
+    <div id="chat-panel">
+      <div id="status-bar">
+        <span id="status-text">READY</span>
+        <span id="session-id-display" style="color:var(--text-dim);">SESSION: ACTIVE</span>
+      </div>
+
+      <div id="messages">
+        <div class="msg system">
+          <div class="msg-bubble">JARVIS v2 — OpenClaw + Claude Sonnet — Singapore</div>
+        </div>
+      </div>
+
+      <div id="typing">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <span>Processing...</span>
+      </div>
+
+      <div id="input-area">
+        <textarea id="msg-input" placeholder="Message JARVIS..." rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button id="send-btn" onclick="sendMessage()" title="Send">⬆</button>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: Mission Control Dashboard ── -->
+    <div id="dashboard-panel">
+
+      <!-- Status cards -->
+      <div>
+        <div class="dash-section-title">STATUS</div>
+        <div class="stat-cards-row">
+          <!-- Life Score with arc gauge -->
+          <div class="dash-card" id="right-score-card" style="grid-column: span 1;">
+            <div class="dash-card-label">Life Score</div>
+            <div id="life-score-gauge-wrap">
+              <svg width="52" height="52" viewBox="0 0 52 52" id="life-score-svg">
+                <!-- track -->
+                <circle cx="26" cy="26" r="20" fill="none" stroke="#1a3a5c" stroke-width="4"
+                  stroke-dasharray="100 100" stroke-dashoffset="-25"
+                  stroke-linecap="round" transform="rotate(-90 26 26)"/>
+                <!-- fill arc -->
+                <circle cx="26" cy="26" r="20" fill="none" stroke="#0ea5e9" stroke-width="4"
+                  id="gauge-arc"
+                  stroke-dasharray="0 126"
+                  stroke-linecap="round" transform="rotate(-220 26 26)"/>
+              </svg>
+              <div>
+                <div id="gauge-score-label">--</div>
+                <div id="gauge-grade-label">Grade --</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Gametime with animated bar -->
+          <div class="dash-card" id="right-gametime-card">
+            <div class="dash-card-label">Gametime</div>
+            <div class="dash-card-value" id="right-gametime-val">--</div>
+            <div class="dash-card-sub" id="right-gametime-sub">beta families</div>
+            <div class="gametime-bar-bg">
+              <div class="gametime-bar-fill" id="right-gametime-bar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <!-- SAT with stale dot -->
+          <div class="dash-card" id="right-sat-card">
+            <div class="dash-card-label" style="display:flex;align-items:center;gap:4px;">
+              SAT <span class="sat-indicator" id="sat-dot"></span>
+            </div>
+            <div class="dash-card-value" id="right-sat-val">--</div>
+            <div class="dash-card-sub" id="right-sat-sub">days since session</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar strip -->
+      <div>
+        <div class="dash-section-title">TODAY</div>
+        <div id="right-calendar-list" style="display:flex;flex-direction:column;gap:5px;">
+          <div class="cal-pill">
+            <span class="cal-pill-title" style="color:var(--text-dim)">Loading calendar...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active app -->
+      <div id="right-active-app">APP: <span>loading...</span></div>
+
+      <!-- Emotional check widget -->
+      <div id="mood-widget">
+        <div class="dash-section-title" style="margin-bottom:0">EMOTIONAL STATE</div>
+        <div class="mood-buttons">
+          <button class="mood-btn" data-mood="2"  title="Frustrated" onclick="logMood(2,  this)">😤</button>
+          <button class="mood-btn" data-mood="4"  title="Neutral"    onclick="logMood(4,  this)">😐</button>
+          <button class="mood-btn" data-mood="6"  title="Good"       onclick="logMood(6,  this)">🙂</button>
+          <button class="mood-btn" data-mood="8"  title="Happy"      onclick="logMood(8,  this)">😊</button>
+          <button class="mood-btn" data-mood="10" title="Energized"  onclick="logMood(10, this)">🚀</button>
+        </div>
+        <div id="mood-response"></div>
+      </div>
+
+      <!-- Quick actions -->
+      <div>
+        <div class="dash-section-title">QUICK ACTIONS</div>
+        <div class="right-quick-actions">
+          <button class="qa-btn" onclick="quickFetch('briefing')">MORNING BRIEF</button>
+          <button class="qa-btn" onclick="quickFetch('gmail')">TRIAGE EMAIL</button>
+          <button class="qa-btn" onclick="sendMessage('What should I research today?')">RESEARCH</button>
+          <button class="qa-btn" onclick="quickFetch('vision')">SCREEN VISION</button>
+          <button class="qa-btn" onclick="openBlockModal()">+ TIME BLOCK</button>
+        </div>
+      </div>
+
+      <!-- System metrics strip -->
+      <div id="sys-metrics">
+        <div class="sys-metric">
+          <span class="sys-metric-label">UPTIME</span>
+          <span class="sys-metric-val" id="metric-uptime">--</span>
+        </div>
+        <div class="sys-metric">
+          <span class="sys-metric-label">MEM</span>
+          <span class="sys-metric-val" id="metric-mem">-- MB</span>
+        </div>
+        <div class="sys-metric">
+          <span class="sys-metric-label">ROUTES</span>
+          <span class="sys-metric-val" id="metric-routes">--</span>
+        </div>
+        <div class="sys-metric" style="margin-left:auto;">
+          <span class="sys-metric-label">NODE</span>
+          <span class="sys-metric-val" style="color:var(--success);">3001</span>
+        </div>
+      </div>
+
+    </div><!-- end dashboard-panel -->
+  </div><!-- end main-layout -->
+
+  <!-- ── Time block modal ── -->
+  <div id="block-modal">
+    <div class="modal-box">
+      <div class="modal-title">Create Time Block</div>
+      <div class="modal-field">
+        <label>Title</label>
+        <input id="block-title" type="text" placeholder="e.g. Vacation, Focus Sprint, Study">
+      </div>
+      <div class="modal-field">
+        <label>Type</label>
+        <select id="block-type">
+          <option value="focus">Focus</option>
+          <option value="vacation">Vacation</option>
+          <option value="study">Study</option>
+          <option value="personal">Personal</option>
+          <option value="busy">Busy</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label>Start Date</label>
+        <input id="block-start" type="date">
+      </div>
+      <div class="modal-field">
+        <label>End Date</label>
+        <input id="block-end" type="date">
+      </div>
+      <div class="modal-field">
+        <label>Description (optional)</label>
+        <input id="block-desc" type="text" placeholder="e.g. Thailand family trip">
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="closeBlockModal()">CANCEL</button>
+        <button class="modal-btn primary" onclick="submitBlock()">CREATE</button>
+      </div>
+    </div>
+  </div>
+</div><!-- end app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// THREE.JS — Particle field + torus ring
+// ═══════════════════════════════════════════════════════════════════════════════
+(function initThree() {
+  const canvas = document.getElementById('three-canvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x050a14, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.z = 60;
+
+  // ── Particle field ──────────────────────────────────────────────────────────
+  const PARTICLE_COUNT = 200;
+  const positions = new Float32Array(PARTICLE_COUNT * 3);
+  const velocities = [];
+  const SPREAD = 80;
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    positions[i * 3]     = (Math.random() - 0.5) * SPREAD;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * SPREAD;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 30;
+    velocities.push({
+      x: (Math.random() - 0.5) * 0.018,
+      y: (Math.random() - 0.5) * 0.018,
+      z: (Math.random() - 0.5) * 0.006
+    });
+  }
+
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const pMat = new THREE.PointsMaterial({
+    color: 0x0ea5e9,
+    size: 0.35,
+    transparent: true,
+    opacity: 0.55,
+    sizeAttenuation: true
+  });
+  const particles = new THREE.Points(pGeo, pMat);
+  scene.add(particles);
+
+  // ── Connection lines (updated each frame) ──────────────────────────────────
+  const LINE_THRESH = 14;
+  const lineGeo = new THREE.BufferGeometry();
+  // pre-alloc max possible line segments
+  const maxSegs = PARTICLE_COUNT * PARTICLE_COUNT;
+  const linePositions = new Float32Array(maxSegs * 6);
+  lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+  const lineMat = new THREE.LineSegments(
+    lineGeo,
+    new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.08 })
+  );
+  scene.add(lineMat);
+
+  // ── Faint torus ring (around orb area in top-left — cosmetic) ──────────────
+  const torusGeo = new THREE.TorusGeometry(8, 0.08, 8, 60);
+  const torusMat = new THREE.MeshBasicMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.18, wireframe: false });
+  const torus = new THREE.Mesh(torusGeo, torusMat);
+  torus.position.set(-28, 18, -10);
+  torus.rotation.x = Math.PI / 4;
+  scene.add(torus);
+
+  const torus2 = new THREE.Mesh(
+    new THREE.TorusGeometry(5, 0.05, 6, 40),
+    new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.12 })
+  );
+  torus2.position.set(-28, 18, -10);
+  torus2.rotation.y = Math.PI / 3;
+  scene.add(torus2);
+
+  // ── Resize handler ──────────────────────────────────────────────────────────
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ── Animation loop ──────────────────────────────────────────────────────────
+  let frame = 0;
+  function animate() {
+    requestAnimationFrame(animate);
+    frame++;
+
+    // Update particle positions
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const idx = i * 3;
+      positions[idx]     += velocities[i].x;
+      positions[idx + 1] += velocities[i].y;
+      positions[idx + 2] += velocities[i].z;
+
+      // Boundary wrap
+      if (positions[idx]     >  SPREAD / 2) positions[idx]     = -SPREAD / 2;
+      if (positions[idx]     < -SPREAD / 2) positions[idx]     =  SPREAD / 2;
+      if (positions[idx + 1] >  SPREAD / 2) positions[idx + 1] = -SPREAD / 2;
+      if (positions[idx + 1] < -SPREAD / 2) positions[idx + 1] =  SPREAD / 2;
+      if (positions[idx + 2] >  15) positions[idx + 2] = -15;
+      if (positions[idx + 2] < -15) positions[idx + 2] =  15;
+    }
+    pGeo.attributes.position.needsUpdate = true;
+
+    // Update connection lines (every 2nd frame for perf)
+    if (frame % 2 === 0) {
+      let lineIdx = 0;
+      const thresh2 = LINE_THRESH * LINE_THRESH;
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        for (let j = i + 1; j < PARTICLE_COUNT; j++) {
+          const dx = positions[i*3]   - positions[j*3];
+          const dy = positions[i*3+1] - positions[j*3+1];
+          const dz = positions[i*3+2] - positions[j*3+2];
+          if (dx*dx + dy*dy + dz*dz < thresh2 && lineIdx + 6 < linePositions.length) {
+            linePositions[lineIdx++] = positions[i*3];
+            linePositions[lineIdx++] = positions[i*3+1];
+            linePositions[lineIdx++] = positions[i*3+2];
+            linePositions[lineIdx++] = positions[j*3];
+            linePositions[lineIdx++] = positions[j*3+1];
+            linePositions[lineIdx++] = positions[j*3+2];
+          }
+        }
+      }
+      // zero out remainder to avoid ghost lines
+      linePositions.fill(0, lineIdx);
+      lineGeo.attributes.position.needsUpdate = true;
+      lineGeo.setDrawRange(0, lineIdx / 3);
+    }
+
+    // Rotate torus rings
+    torus.rotation.z  += 0.003;
+    torus2.rotation.x += 0.002;
+    torus2.rotation.z += 0.004;
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ORB CANVAS — pulsing glow animation
+// ═══════════════════════════════════════════════════════════════════════════════
+(function initOrb() {
+  const canvas = document.getElementById('orb-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height, CX = W/2, CY = H/2, R = 14;
+  let t = 0;
+
+  function drawOrb() {
+    ctx.clearRect(0, 0, W, H);
+    t += 0.04;
+    const pulse = 0.7 + 0.3 * Math.sin(t);
+
+    // outer glow
+    const glow = ctx.createRadialGradient(CX, CY, R * 0.5, CX, CY, R * 2.2 * pulse);
+    glow.addColorStop(0, 'rgba(14,165,233,0.25)');
+    glow.addColorStop(1, 'rgba(14,165,233,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R * 2.2 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    // core sphere
+    const grad = ctx.createRadialGradient(CX - 4, CY - 4, 1, CX, CY, R);
+    grad.addColorStop(0, '#7dd3fc');
+    grad.addColorStop(0.4, '#0ea5e9');
+    grad.addColorStop(1, '#003366');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    // inner ring
+    ctx.strokeStyle = `rgba(125,211,252,${0.4 * pulse})`;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R - 3, 0, Math.PI * 2);
+    ctx.stroke();
+
+    requestAnimationFrame(drawOrb);
+  }
+  drawOrb();
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+let sessionId = 'jarvis-phone-' + Date.now();
+let currentJarvisEl = null;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const sgt = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));
+  document.getElementById('clock').textContent =
+    sgt.getHours().toString().padStart(2, '0') + ':' +
+    sgt.getMinutes().toString().padStart(2, '0');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+function setStatus(text) {
+  document.getElementById('status-text').textContent = text;
+}
+
+function addMessage(role, text, streaming = false) {
+  const messages = document.getElementById('messages');
+  const msg = document.createElement('div');
+  msg.className = `msg ${role}`;
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = role === 'user' ? 'YOU' : role === 'jarvis' ? 'JARVIS' : 'SYSTEM';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  if (text) bubble.textContent = text;
+  msg.appendChild(label);
+  msg.appendChild(bubble);
+  messages.appendChild(msg);
+  messages.scrollTop = messages.scrollHeight;
+  return streaming ? bubble : msg;
+}
+
+function setTyping(active) {
+  document.getElementById('typing').classList.toggle('active', active);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SEND MESSAGE (SSE streaming)
+// ═══════════════════════════════════════════════════════════════════════════════
+async function sendMessage(text) {
+  const input = document.getElementById('msg-input');
+  const msg = (text || input.value).trim();
+  if (!msg) return;
+  input.value = '';
+  autoResize(input);
+
+  addMessage('user', msg);
+  setTyping(true);
+  setStatus('PROCESSING...');
+
+  const bubble = addMessage('jarvis', '', true);
+  currentJarvisEl = bubble;
+  let fullText = '';
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, sessionId })
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      chunk.split('\n').forEach(line => {
+        if (!line.startsWith('data: ')) return;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.text) {
+            fullText += data.text;
+            bubble.textContent = fullText;
+            document.getElementById('messages').scrollTop = 9999;
+          }
+        } catch {}
+      });
+    }
+
+  } catch (err) {
+    bubble.textContent = 'Connection error: ' + err.message;
+    bubble.style.color = 'var(--danger)';
+  } finally {
+    setTyping(false);
+    setStatus('READY');
+    document.getElementById('messages').scrollTop = 9999;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUT CONTROLS
+// ═══════════════════════════════════════════════════════════════════════════════
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIFE SCORE GAUGE (SVG arc)
+// ═══════════════════════════════════════════════════════════════════════════════
+function updateGauge(score, maxScore, grade) {
+  const arc = document.getElementById('gauge-arc');
+  if (!arc) return;
+  // circumference of r=20 circle ≈ 125.66
+  const C = 2 * Math.PI * 20;
+  const pct = Math.min(1, score / maxScore);
+  const filled = pct * C;
+  arc.setAttribute('stroke-dasharray', `${filled.toFixed(1)} ${(C - filled).toFixed(1)}`);
+
+  const gradeColors = { S: '#f59e0b', A: '#10b981', B: '#0ea5e9', C: '#f97316', D: '#ef4444' };
+  arc.setAttribute('stroke', gradeColors[grade] || '#0ea5e9');
+
+  document.getElementById('gauge-score-label').textContent = score;
+  document.getElementById('gauge-score-label').style.color = gradeColors[grade] || '#0ea5e9';
+  document.getElementById('gauge-grade-label').textContent = `Grade ${grade} / ${maxScore}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD REFRESH
+// ═══════════════════════════════════════════════════════════════════════════════
+async function refreshDashboard() {
+  // Life score
+  try {
+    const s = await fetch('/life-score/current').then(r => r.json());
+    const card = document.getElementById('right-score-card');
+    card.className = 'dash-card grade-' + s.grade;
+    updateGauge(s.score, s.max || 82, s.grade);
+  } catch {}
+
+  // Gametime + SAT from memory
+  try {
+    const mem = await fetch('/memory/').then(r => r.json());
+    const kv = {};
+    (Array.isArray(mem) ? mem : []).forEach(m => { kv[m.key] = m.value; });
+
+    const users = parseInt(kv['gametime_beta_users']) || 0;
+    document.getElementById('right-gametime-val').textContent = users + '/20';
+    document.getElementById('right-gametime-sub').textContent = 'beta families';
+    document.getElementById('right-gametime-bar').style.width = Math.min(100, (users / 20) * 100) + '%';
+
+    const satLast = kv['sat_last_session'] ? JSON.parse(kv['sat_last_session']) : null;
+    if (satLast) {
+      const daysSince = Math.floor((Date.now() - new Date(satLast.date)) / 86400000);
+      document.getElementById('right-sat-val').textContent = daysSince + 'd';
+      document.getElementById('right-sat-sub').textContent = daysSince > 7 ? 'STALE — practice now' : `since ${satLast.date}`;
+      // stale dot
+      const dot = document.getElementById('sat-dot');
+      dot.className = 'sat-indicator ' + (daysSince > 7 ? 'stale' : 'fresh');
+      document.getElementById('right-sat-card').style.borderColor =
+        daysSince > 7 ? 'var(--danger)' : 'var(--border)';
+    }
+  } catch {}
+
+  // Calendar
+  try {
+    const cal = await fetch('/calendar/today').then(r => r.json());
+    const events = Array.isArray(cal) ? cal : (cal.events || []);
+    const container = document.getElementById('right-calendar-list');
+    if (!events.length) {
+      container.innerHTML = '<div class="cal-pill"><span class="cal-pill-title" style="color:var(--text-dim)">No events today</span></div>';
+    } else {
+      container.innerHTML = events.slice(0, 5).map(e => {
+        const time = e.start?.dateTime
+          ? new Date(e.start.dateTime).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' })
+          : 'all-day';
+        return `<div class="cal-pill"><span class="cal-pill-time">${time}</span><span class="cal-pill-title">${e.summary || e.title || 'Event'}</span></div>`;
+      }).join('');
+    }
+  } catch {
+    document.getElementById('right-calendar-list').innerHTML =
+      '<div class="cal-pill"><span class="cal-pill-title" style="color:var(--text-dim)">Calendar unavailable</span></div>';
+  }
+
+  // Active app
+  try {
+    const ctx = await fetch('/context/current').then(r => r.json());
+    const appText = ctx.app ? `${ctx.app}${ctx.title ? ' — ' + ctx.title : ''}` : 'unknown';
+    document.getElementById('right-active-app').innerHTML = 'APP: <span>' + appText + '</span>';
+  } catch {
+    document.getElementById('right-active-app').innerHTML = 'APP: <span style="color:var(--text-dim)">context unavailable</span>';
+  }
+}
+
+setInterval(refreshDashboard, 30000);
+refreshDashboard();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SYSTEM METRICS — /status/full
+// ═══════════════════════════════════════════════════════════════════════════════
+async function loadSystemMetrics() {
+  try {
+    const data = await fetch('/status/full').then(r => r.json());
+
+    // uptime
+    if (data.uptime_s != null) {
+      const s = Math.floor(data.uptime_s);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      document.getElementById('metric-uptime').textContent =
+        h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    // memory
+    if (data.memory_mb != null) {
+      document.getElementById('metric-mem').textContent = Math.round(data.memory_mb) + ' MB';
+    }
+
+    // routes
+    const routeCount = data.routes ? (Array.isArray(data.routes) ? data.routes.length : Object.keys(data.routes).length) : null;
+    if (routeCount != null) {
+      document.getElementById('metric-routes').textContent = routeCount;
+    }
+  } catch {}
+}
+loadSystemMetrics();
+setInterval(loadSystemMetrics, 60000);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EMOTIONAL CHECK — POST /emotional/log
+// ═══════════════════════════════════════════════════════════════════════════════
+async function logMood(mood, btn) {
+  // Deselect others
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+
+  const responseEl = document.getElementById('mood-response');
+  responseEl.textContent = 'Logging...';
+  responseEl.className = '';
+
+  try {
+    const res = await fetch('/emotional/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mood, context: 'ui' })
+    });
+    const data = await res.json();
+    const reply = data.response || data.message || data.recommendation || 'Logged.';
+    responseEl.textContent = reply;
+    responseEl.className = 'active';
+  } catch (err) {
+    responseEl.textContent = 'Mood logged (offline).';
+    responseEl.className = 'active';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QUICK FETCH
+// ═══════════════════════════════════════════════════════════════════════════════
+async function quickFetch(type) {
+  const actions = {
+    calendar: async () => {
+      const events = await fetch('/calendar/today').then(r => r.json());
+      const list = Array.isArray(events) ? events : (events.events || []);
+      if (!list.length) return 'No events today.';
+      return 'TODAY:\n' + list.map(e =>
+        `• ${e.summary || e.title || 'event'}${e.start?.dateTime
+          ? ' @ ' + new Date(e.start.dateTime).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' })
+          : ''}`
+      ).join('\n');
+    },
+    gmail: async () => {
+      const triage = await fetch('/gmail/triage').then(r => r.json());
+      if (!triage.emails?.length) return 'Inbox clear.';
+      const urgent = triage.urgent?.map(i => triage.emails[i - 1]?.subject).filter(Boolean) || [];
+      return `${triage.total} unread.\nURGENT: ${urgent.length ? urgent.join(', ') : 'none'}`;
+    },
+    briefing: async () => {
+      addMessage('system', 'Generating morning briefing...');
+      const b = await fetch('/briefing/morning').then(r => r.json());
+      return b.briefing || 'No briefing generated.';
+    },
+    gametime: async () => {
+      const s = await fetch('/gametime/status').then(r => r.json());
+      const adv = await fetch('/gametime/advice').then(r => r.json());
+      return `GAMETIME: ${s.users}/20 families · ${s.daysLeft}d left · ${s.paceStatus.toUpperCase()}\n\n${adv.advice}`;
+    },
+    vision: async () => {
+      addMessage('system', 'Capturing screen...');
+      const v = await fetch('/vision/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      }).then(r => r.json());
+      return v.analysis || v.error || 'Vision failed.';
+    }
+  };
+
+  if (!actions[type]) return;
+  try {
+    const result = await actions[type]();
+    addMessage('jarvis', result);
+  } catch (err) {
+    addMessage('system', type + ' error: ' + err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIME BLOCK MODAL
+// ═══════════════════════════════════════════════════════════════════════════════
+function openBlockModal() {
+  const today    = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  document.getElementById('block-start').value = today;
+  document.getElementById('block-end').value   = tomorrow;
+  document.getElementById('block-title').value = '';
+  document.getElementById('block-desc').value  = '';
+  document.getElementById('block-modal').classList.add('open');
+}
+
+function closeBlockModal() {
+  document.getElementById('block-modal').classList.remove('open');
+}
+
+async function submitBlock() {
+  const title       = document.getElementById('block-title').value.trim();
+  const blockType   = document.getElementById('block-type').value;
+  const startDate   = document.getElementById('block-start').value;
+  const endDate     = document.getElementById('block-end').value;
+  const description = document.getElementById('block-desc').value.trim();
+
+  if (!title || !startDate || !endDate) {
+    alert('Title, start, and end are required.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/calendar/block', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, startDate, endDate, blockType, description })
+    });
+    const data = await res.json();
+    closeBlockModal();
+    if (data.error) {
+      addMessage('system', 'Block failed: ' + data.error);
+    } else {
+      addMessage('jarvis', `Time block created: "${title}" from ${startDate} to ${endDate} (${blockType}).`);
+    }
+  } catch (err) {
+    addMessage('system', 'Block error: ' + err.message);
+  }
+}
+
+// Close modal on backdrop click
+document.getElementById('block-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('block-modal')) closeBlockModal();
+});
+</script>
+</body>
+</html>

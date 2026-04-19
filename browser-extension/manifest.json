@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "JARVIS",
+  "version": "1.0.0",
+  "description": "JARVIS AI OS — browser control",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": ["http://localhost:3001/*"],
+  "action": { "default_popup": "popup.html", "default_icon": { "32": "icon.png" } },
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle" }]
+}

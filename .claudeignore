@@ -1,0 +1,78 @@
+# JARVIS v2 — Claude context exclusions
+# Prevents context bloat from large/irrelevant files
+
+# Dependencies
+node_modules/
+.npm/
+
+# Version control
+.git/
+.gitignore
+
+# Runtime data (exclude DB data, keep schema)
+.jarvis-v2/*.db
+.jarvis-v2/backups/
+~/.openclaw/memory/lancedb/
+
+# Logs
+*.log
+logs/
+/tmp/jarvis-*.wav
+/tmp/jarvis-*.png
+/tmp/jarvis-tts-*/
+/tmp/jarvis-trans-*/
+
+# Vector / embedding caches
+vector_cache/
+embeddings_cache/
+*.lance
+*.idx
+
+# LaunchAgent plists (managed by launchctl, not Claude)
+~/Library/LaunchAgents/ai.jarvis.*.plist
+~/Library/LaunchAgents/ai.openclaw.*.plist
+
+# Build artifacts
+dist/
+build/
+.cache/
+*.min.js
+
+# Media / large assets
+public/assets/
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Python environments
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.jarvis-voice/lib/
+.jarvis-voice/include/
+
+# Playwright browser cache
+Library/Caches/ms-playwright/
+
+# OpenClaw internal (keep workspace, exclude runtime state)
+.openclaw/agents/
+.openclaw/canvas/
+.openclaw/cron/
+.openclaw/devices/
+.openclaw/flows/
+.openclaw/identity/
+.openclaw/logs/
+.openclaw/tasks/
+.openclaw/memory/lancedb/
+
+# Secrets (never include)
+.env
+*.pem
+*.key
+*.cert

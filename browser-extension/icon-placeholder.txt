@@ -1,0 +1,10 @@
+Replace with 32x32 JARVIS orb PNG.
+
+Suggested design:
+- 32x32 px PNG
+- Background: radial gradient #1e3a5f → #050a14 (dark navy)
+- Circle border: #0ea5e9 (cyan), ~1.5px
+- Center: glowing "J" in #0ea5e9, SF Mono or monospace font
+- Outer glow: box-shadow rgba(14,165,233,0.5)
+
+Save the file as icon.png in this same directory.
